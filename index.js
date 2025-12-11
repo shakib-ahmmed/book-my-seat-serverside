@@ -1,11 +1,15 @@
 const express = require('express');
 const cors = require('cors');
-const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
+const { MongoClient, ServerApiVersion } = require('mongodb');
 
 const app = express();
 const port = 3000;
 
-app.use(cors());
+app.use(cors({
+    origin: 'http://localhost:5173',
+    credentials: true,
+}));
+
 app.use(express.json());
 
 // MongoDB connection
@@ -19,8 +23,8 @@ const client = new MongoClient(uri, {
 });
 
 let userCollection;
-let TicketsCollection; 
-let AddedTicketsCollection;
+let ticketsCollection;
+let addedTicketsCollection;
 
 async function run() {
     try {
@@ -30,30 +34,31 @@ async function run() {
         const db = client.db("BookMySeatDB");
 
         userCollection = db.collection("users");
-        AddedTicketsCollection = db.collection("addedTickets");
-        TicketsCollection = db.collection("tickets");
+        addedTicketsCollection = db.collection("addedTickets");
+        ticketsCollection = db.collection("tickets");
 
         await db.command({ ping: 1 });
         console.log("Ping successful!");
     } catch (err) {
-        console.error("Mongo DB Error:", err);
+        console.error("MongoDB Error:", err);
     }
 }
 run().catch(console.dir);
 
 
-// Routes
+
+
 app.get('/', (req, res) => {
     res.send("Server is running fine!");
 });
 
-// Become vendor
+
 app.post('/become-vendor', async (req, res) => {
     const { userEmail } = req.body;
     res.json({ message: 'Successfully requested to become vendor' });
 });
 
-// Get user role
+
 app.get('/user/role', async (req, res) => {
     try {
         const email = req.query.email;
@@ -67,11 +72,11 @@ app.get('/user/role', async (req, res) => {
     }
 });
 
-// Vendor added tickets
+
 app.get('/my-added-tickets/:email', async (req, res) => {
     try {
         const email = req.params.email;
-        const tickets = await AddedTicketsCollection.find({ addedBy: email }).toArray();
+        const tickets = await addedTicketsCollection.find({ addedBy: email }).toArray();
         res.json(tickets);
     } catch (err) {
         console.error(err);
@@ -79,13 +84,57 @@ app.get('/my-added-tickets/:email', async (req, res) => {
     }
 });
 
-// Buyer purchased tickets
+
 app.get('/my-tickets', async (req, res) => {
     const email = req.query.email;
     if (!email) return res.status(400).json({ message: 'Email is required' });
 
     try {
-        const tickets = await TicketsCollection.find({ buyerEmail: email }).toArray();
+        const tickets = await ticketsCollection.find({ buyerEmail: email }).toArray();
+        res.json(tickets);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: 'Failed to fetch tickets' });
+    }
+});
+
+app.get('/users', async (req, res) => {
+    try {
+        const role = req.query.role;
+        if (!role) return res.status(400).json({ error: "Role is required" });
+
+        const users = await userCollection.find({ role }).toArray();
+        res.json(users);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: "Failed to fetch users" });
+    }
+});
+
+
+
+
+app.get('/tickets', async (req, res) => {
+    try {
+        const status = req.query.status || 'approved';
+        const tickets = await TicketsCollection.find({ status }).toArray();
+        res.json(tickets);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: 'Failed to fetch tickets' });
+    }
+});
+
+
+app.get('/tickets', async (req, res) => {
+    const status = req.query.status; 
+    const search = req.query.search || '';
+    const sortBy = req.query.sortBy || 'price';
+    const order = req.query.order === 'desc' ? -1 : 1;
+
+    try {
+        const query = { status: status || 'approved', title: { $regex: search, $options: 'i' } };
+        const tickets = await TicketsCollection.find(query).sort({ [sortBy]: order }).toArray();
         res.json(tickets);
     } catch (err) {
         console.error(err);
