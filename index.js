@@ -19,31 +19,41 @@ const client = new MongoClient(uri, {
 });
 
 let userCollection;
+let TicketsCollection; 
+let AddedTicketsCollection;
 
 async function run() {
     try {
         await client.connect();
         console.log("Connected to MongoDB!");
+
         const db = client.db("BookMySeatDB");
+
         userCollection = db.collection("users");
+        AddedTicketsCollection = db.collection("addedTickets");
+        TicketsCollection = db.collection("tickets");
+
         await db.command({ ping: 1 });
         console.log("Ping successful!");
     } catch (err) {
-        console.error(err);
+        console.error("Mongo DB Error:", err);
     }
 }
 run().catch(console.dir);
 
 
+// Routes
 app.get('/', (req, res) => {
     res.send("Server is running fine!");
 });
 
+// Become vendor
 app.post('/become-vendor', async (req, res) => {
     const { userEmail } = req.body;
     res.json({ message: 'Successfully requested to become vendor' });
 });
 
+// Get user role
 app.get('/user/role', async (req, res) => {
     try {
         const email = req.query.email;
@@ -57,15 +67,21 @@ app.get('/user/role', async (req, res) => {
     }
 });
 
+// Vendor added tickets
 app.get('/my-added-tickets/:email', async (req, res) => {
-    const { email } = req.params
-    const tickets = await Tickets.find({ addedBy: email }).toArray()
-    res.json(tickets)
-})
+    try {
+        const email = req.params.email;
+        const tickets = await AddedTicketsCollection.find({ addedBy: email }).toArray();
+        res.json(tickets);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: 'Failed to fetch added tickets' });
+    }
+});
 
-
+// Buyer purchased tickets
 app.get('/my-tickets', async (req, res) => {
-    const email = req.query.email; 
+    const email = req.query.email;
     if (!email) return res.status(400).json({ message: 'Email is required' });
 
     try {
@@ -76,7 +92,6 @@ app.get('/my-tickets', async (req, res) => {
         res.status(500).json({ message: 'Failed to fetch tickets' });
     }
 });
-
 
 
 app.listen(port, () => {
