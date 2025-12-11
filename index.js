@@ -112,35 +112,36 @@ app.get('/users', async (req, res) => {
 });
 
 
+const db = client.db('bookmyseat-DB')
+const modelCollection = db.collection('tickets')
 
 
 app.get('/tickets', async (req, res) => {
-    try {
-        const status = req.query.status || 'approved';
-        const tickets = await TicketsCollection.find({ status }).toArray();
-        res.json(tickets);
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ message: 'Failed to fetch tickets' });
-    }
-});
-
-
-app.get('/tickets', async (req, res) => {
-    const status = req.query.status; 
+    const status = req.query.status || 'approved';
     const search = req.query.search || '';
     const sortBy = req.query.sortBy || 'price';
     const order = req.query.order === 'desc' ? -1 : 1;
 
     try {
-        const query = { status: status || 'approved', title: { $regex: search, $options: 'i' } };
-        const tickets = await TicketsCollection.find(query).sort({ [sortBy]: order }).toArray();
+        const query = {
+            status: status,
+            title: { $regex: search, $options: 'i' }
+        };
+
+        const tickets = await ticketsCollection
+            .find(query)
+            .sort({ [sortBy]: order })
+            .toArray();
+
         res.json(tickets);
     } catch (err) {
         console.error(err);
         res.status(500).json({ message: 'Failed to fetch tickets' });
     }
 });
+
+
+
 
 
 app.listen(port, () => {
