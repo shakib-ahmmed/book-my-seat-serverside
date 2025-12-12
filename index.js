@@ -287,7 +287,7 @@ app.patch('/users/:id/fraud', async (req, res) => {
 });
 
 
-// Get all users
+
 app.get('/users', async (req, res) => {
     try {
         const users = await userCollection.find().toArray();
