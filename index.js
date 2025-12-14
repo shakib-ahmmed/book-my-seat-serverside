@@ -384,36 +384,56 @@ app.get('/vendor-requests', async (req, res) => {
 
 // Get all bookings 
 app.get('/bookings', async (req, res) => {
-  try {
-    const status = req.query.status; 
-    const query = {};
+    try {
+        const status = req.query.status;
+        const query = {};
 
-    if (status) {
-      query.status = status;
+        if (status) {
+            query.status = status;
+        }
+
+        const bookings = await bookingsCollection.find(query).toArray();
+
+        const detailedBookings = await Promise.all(
+            bookings.map(async (b) => {
+                const ticket = await ticketsCollection.findOne({ _id: new ObjectId(b.ticketId) });
+                return {
+                    ...b,
+                    ticket: ticket ? { ...ticket, _id: ticket._id.toString() } : null,
+                };
+            })
+        );
+
+        res.json(detailedBookings);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: "Failed to fetch bookings" });
     }
-
-    const bookings = await bookingsCollection.find(query).toArray();
-
-    const detailedBookings = await Promise.all(
-      bookings.map(async (b) => {
-        const ticket = await ticketsCollection.findOne({ _id: new ObjectId(b.ticketId) });
-        return {
-          ...b,
-          ticket: ticket ? { ...ticket, _id: ticket._id.toString() } : null,
-        };
-      })
-    );
-
-    res.json(detailedBookings);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Failed to fetch bookings" });
-  }
 });
 
 
+// Get tickets added by a vendor
+app.get('/my-inventory/:vendorEmail', async (req, res) => {
+    try {
+        const { vendorEmail } = req.params;
+        if (!vendorEmail) return res.status(400).json({ message: "Vendor email is required" });
 
-// Start server
+        const tickets = await ticketsCollection.find({ vendorEmail }).toArray();
+
+        const formattedTickets = tickets.map(t => ({
+            ...t,
+            _id: t._id.toString(),
+        }));
+
+        res.json(formattedTickets);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: "Failed to fetch vendor inventory" });
+    }
+});
+
+
+// Start server_______________________
 app.listen(port, () => {
     console.log(`BOOKMYSEAT Server listening on port ${port}`);
 });
