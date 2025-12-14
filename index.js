@@ -447,64 +447,111 @@ app.get('/vendor-tickets', async (req, res) => {
     }
 });
 
+// Get tickets 
 app.get('/tickets', async (req, res) => {
     try {
-        const status = req.query.status;
+        const status = req.query.status; 
         const search = req.query.search || '';
         const sortBy = req.query.sortBy || 'price';
         const order = req.query.order === 'desc' ? -1 : 1;
 
-        const query = { title: { $regex: search, $options: 'i' } };
+                const query = { title: { $regex: search, $options: 'i' } };
         if (status) query.status = status;
 
         const tickets = await ticketsCollection.find(query)
             .sort({ [sortBy]: order })
             .toArray();
 
-        const formattedTickets = tickets.map(t => ({ ...t, _id: t._id.toString() }));
+        const formattedTickets = tickets.map(t => ({
+            ...t,
+            _id: t._id.toString(),
+            advertise: t.advertise || false, 
+        }));
+
         res.json(formattedTickets);
     } catch (err) {
-        console.error(err);
+        console.error("Failed to fetch tickets:", err);
         res.status(500).json({ message: "Failed to fetch tickets" });
     }
 });
 
 
+
+app.get('/tickets', async (req, res) => {
+    try {
+        const search = req.query.search || '';
+        const sortBy = req.query.sortBy || 'price';
+        const order = req.query.order === 'desc' ? -1 : 1;
+
+        const query = { title: { $regex: search, $options: 'i' } };
+        const tickets = await ticketsCollection.find(query).sort({ [sortBy]: order }).toArray();
+        res.json(tickets.map(t => ({ ...t, _id: t._id.toString() })));
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: 'Failed to fetch tickets' });
+    }
+});
+
+// Approve ticket
 app.patch('/tickets/:id/approve', async (req, res) => {
     try {
         const { id } = req.params;
+        if (!ObjectId.isValid(id)) return res.status(400).json({ message: 'Invalid ticket ID' });
 
-        if (!ObjectId.isValid(id)) {
-            return res.status(400).json({ message: "Invalid ticket ID" });
-        }
+        const ticket = await ticketsCollection.findOne({ _id: new ObjectId(id) });
+        if (!ticket) return res.status(404).json({ message: 'Ticket not found' });
+        if (ticket.status === 'approved') return res.status(400).json({ message: 'Already approved' });
 
-        const result = await ticketsCollection.updateOne(
-            { _id: new ObjectId(id) },
-            { $set: { status: 'approved' } }
-        );
-
-        if (result.modifiedCount === 0) {
-            return res.status(404).json({ message: "Ticket not found or already approved" });
-        }
-
+        await ticketsCollection.updateOne({ _id: new ObjectId(id) }, { $set: { status: 'approved' } });
         res.json({ message: 'Ticket approved' });
     } catch (err) {
-        console.error("Approve Ticket Error:", err);
-        res.status(500).json({ message: "Failed to approve ticket" });
+        console.error(err);
+        res.status(500).json({ message: 'Failed to approve ticket' });
+    }
+});
+
+// Reject ticket
+app.patch('/tickets/:id/reject', async (req, res) => {
+    try {
+        const { id } = req.params;
+        if (!ObjectId.isValid(id)) return res.status(400).json({ message: 'Invalid ticket ID' });
+
+        const ticket = await ticketsCollection.findOne({ _id: new ObjectId(id) });
+        if (!ticket) return res.status(404).json({ message: 'Ticket not found' });
+        if (ticket.status === 'rejected') return res.status(400).json({ message: 'Already rejected' });
+
+        await ticketsCollection.updateOne({ _id: new ObjectId(id) }, { $set: { status: 'rejected' } });
+        res.json({ message: 'Ticket rejected' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: 'Failed to reject ticket' });
     }
 });
 
 
-
-
-app.patch('/tickets/:id/reject', async (req, res) => {
+app.patch('/tickets/:id/advertise', async (req, res) => {
+  try {
     const { id } = req.params;
-    await ticketsCollection.updateOne(
-        { _id: new ObjectId(id) },
-        { $set: { status: 'rejected' } }
+    const { advertise } = req.body;
+
+    if (!ObjectId.isValid(id)) return res.status(400).json({ message: "Invalid ticket ID" });
+
+    const result = await ticketsCollection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { advertise } }
     );
-    res.json({ message: 'Ticket rejected' });
+
+    if (result.matchedCount === 0) return res.status(404).json({ message: "Ticket not found" });
+
+    res.json({ message: `Ticket advertise set to ${advertise}` });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Failed to update advertise status" });
+  }
 });
+
+
+app.listen(port, () => console.log(`Server running on port ${port}`));
 
 // Start server_______________________
 app.listen(port, () => {
