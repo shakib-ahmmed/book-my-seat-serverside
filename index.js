@@ -432,6 +432,79 @@ app.get('/my-inventory/:vendorEmail', async (req, res) => {
     }
 });
 
+app.get('/vendor-tickets', async (req, res) => {
+    try {
+        const email = req.query.email;
+        if (!email) return res.status(400).json({ message: "Email is required" });
+
+        const tickets = await ticketsCollection.find({ vendorEmail: email }).toArray();
+        const formattedTickets = tickets.map(t => ({ ...t, _id: t._id.toString() }));
+
+        res.json(formattedTickets);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: "Failed to fetch vendor tickets" });
+    }
+});
+
+app.get('/tickets', async (req, res) => {
+    try {
+        const status = req.query.status;
+        const search = req.query.search || '';
+        const sortBy = req.query.sortBy || 'price';
+        const order = req.query.order === 'desc' ? -1 : 1;
+
+        const query = { title: { $regex: search, $options: 'i' } };
+        if (status) query.status = status;
+
+        const tickets = await ticketsCollection.find(query)
+            .sort({ [sortBy]: order })
+            .toArray();
+
+        const formattedTickets = tickets.map(t => ({ ...t, _id: t._id.toString() }));
+        res.json(formattedTickets);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: "Failed to fetch tickets" });
+    }
+});
+
+
+app.patch('/tickets/:id/approve', async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        if (!ObjectId.isValid(id)) {
+            return res.status(400).json({ message: "Invalid ticket ID" });
+        }
+
+        const result = await ticketsCollection.updateOne(
+            { _id: new ObjectId(id) },
+            { $set: { status: 'approved' } }
+        );
+
+        if (result.modifiedCount === 0) {
+            return res.status(404).json({ message: "Ticket not found or already approved" });
+        }
+
+        res.json({ message: 'Ticket approved' });
+    } catch (err) {
+        console.error("Approve Ticket Error:", err);
+        res.status(500).json({ message: "Failed to approve ticket" });
+    }
+});
+
+
+
+
+app.patch('/tickets/:id/reject', async (req, res) => {
+    const { id } = req.params;
+    await ticketsCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: { status: 'rejected' } }
+    );
+    res.json({ message: 'Ticket rejected' });
+});
 
 // Start server_______________________
 app.listen(port, () => {
