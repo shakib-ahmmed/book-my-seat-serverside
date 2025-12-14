@@ -9,7 +9,7 @@ const app = express();
 const port = process.env.PORT || 5000;
 
 // Allowed origins for CORS
-const allowedOrigins = ['http://localhost:4000', 'http://localhost:5173'];
+const allowedOrigins = ['http://localhost:4000', 'http://localhost:5173','http://localhost:5174'];
 
 app.use((req, res, next) => {
     const origin = req.headers.origin;
@@ -43,10 +43,13 @@ let userCollection, ticketsCollection, bookingsCollection;
 
 async function run() {
     try {
+        await client.connect();
+
         const db = client.db('bookmyseat-DB');
         userCollection = db.collection("users");
         ticketsCollection = db.collection("tickets");
         bookingsCollection = db.collection("bookings");
+        vendorRequestsCollection = db.collection("vendorRequests");
 
         console.log("MongoDB connected!");
     } catch (err) {
@@ -72,6 +75,35 @@ app.get('/user/role', async (req, res) => {
         res.status(500).json({ error: "Internal server error" });
     }
 });
+
+app.patch('/users/:id/role', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { role } = req.body;
+
+        if (!ObjectId.isValid(id)) {
+            return res.status(400).json({ message: "Invalid user ID" });
+        }
+
+        if (!role) {
+            return res.status(400).json({ message: "Role is required" });
+        }
+
+        const result = await userCollection.updateOne(
+            { _id: new ObjectId(id) },
+            { $set: { role } }
+        );
+
+        res.json({
+            message: "User role updated successfully",
+            modifiedCount: result.modifiedCount
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: "Failed to update user role" });
+    }
+});
+
 
 // Get all tickets
 app.get('/tickets', async (req, res) => {
@@ -276,7 +308,7 @@ app.patch('/users/:id/fraud', async (req, res) => {
         if (!ObjectId.isValid(id)) return res.status(400).json({ message: "Invalid user ID" });
 
         await userCollection.updateOne({ _id: new ObjectId(id) }, { $set: { fraud: true } });
-       
+
         await ticketsCollection.updateMany({ vendorId: id }, { $set: { status: 'hidden' } });
 
         res.json({ message: 'Vendor marked as fraud' });
@@ -322,6 +354,16 @@ app.patch('/users/:id/role', async (req, res) => {
         res.status(500).json({ message: "Failed to update user role" });
     }
 });
+
+app.get('/vendor-requests', async (req, res) => {
+    try {
+        const requests = await vendorRequestsCollection.find({}).toArray();
+        res.send(requests);
+    } catch (error) {
+        res.status(500).send({ message: 'Failed to fetch vendor requests' });
+    }
+});
+
 
 
 // Start server
