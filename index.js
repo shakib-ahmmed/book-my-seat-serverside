@@ -9,7 +9,7 @@ const app = express();
 const port = process.env.PORT || 5000;
 
 // Allowed origins for CORS
-const allowedOrigins = ['http://localhost:4000', 'http://localhost:5173','http://localhost:5174'];
+const allowedOrigins = ['http://localhost:4000', 'http://localhost:5173', 'http://localhost:5174'];
 
 app.use((req, res, next) => {
     const origin = req.headers.origin;
@@ -354,6 +354,24 @@ app.patch('/users/:id/role', async (req, res) => {
         res.status(500).json({ message: "Failed to update user role" });
     }
 });
+
+
+// Get tickets added by a specific vendor
+app.get('/my-added-tickets/:email', async (req, res) => {
+    try {
+        const { email } = req.params;
+        if (!email) return res.status(400).json({ message: "Email is required" });
+
+        const tickets = await ticketsCollection.find({ vendorEmail: email }).toArray();
+        const formattedTickets = tickets.map(t => ({ ...t, _id: t._id.toString() }));
+
+        res.json(formattedTickets);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: "Failed to fetch tickets" });
+    }
+});
+
 
 app.get('/vendor-requests', async (req, res) => {
     try {
