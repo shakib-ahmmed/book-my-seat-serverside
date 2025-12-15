@@ -553,7 +553,7 @@ app.patch('/tickets/:id/advertise', async (req, res) => {
 
 app.listen(port, () => console.log(`Server running on port ${port}`));
 
-// Start server_______________________
+// Start server________
 app.listen(port, () => {
     console.log(`BOOKMYSEAT Server listening on port ${port}`);
 });
