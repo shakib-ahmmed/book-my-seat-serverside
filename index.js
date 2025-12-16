@@ -9,7 +9,7 @@ const app = express();
 const port = process.env.PORT || 5000;
 
 //CORS
-const allowedOrigins = ['http://localhost:4000', 'http://localhost:5173', 'http://localhost:5174'];
+const allowedOrigins = ['https://book-my-seat-77125.web.app/'];
 
 app.use((req, res, next) => {
     const origin = req.headers.origin;
