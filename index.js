@@ -299,36 +299,60 @@ async function run() {
         });
 
         // Create or update a user with a role
+
         app.post('/users', async (req, res) => {
             try {
                 const { email, name, role } = req.body;
-                if (!email || !role) return res.status(400).json({ message: "Email and role are required" });
+                if (!email) return res.status(400).json({ message: "Email is required" });
 
                 const existingUser = await userCollection.findOne({ email });
 
                 if (existingUser) {
-                    await userCollection.updateOne(
-                        { email },
-                        { $set: { role, name: name || existingUser.name } }
-                    );
-                    return res.json({ message: "User role updated successfully" });
+                    if (role) {
+                        await userCollection.updateOne(
+                            { email },
+                            { $set: { role, name: name || existingUser.name } }
+                        );
+                        return res.json({ message: "User updated successfully", role });
+                    }
+                    return res.json({ message: "User exists", role: existingUser.role });
                 }
-                const result = await userCollection.insertOne({
+
+                const newUser = {
                     email,
                     name: name || email.split('@')[0],
-                    role,
+                    role: role === "vendor" || role === "admin" ? role : "user",
                     createdAt: new Date()
-                });
+                };
 
-                res.status(201).json({ message: "User created successfully", userId: result.insertedId });
+                const result = await userCollection.insertOne(newUser);
+
+                res.status(201).json({
+                    message: "User created successfully",
+                    userId: result.insertedId,
+                    role: newUser.role
+                });
             } catch (err) {
                 console.error(err);
                 res.status(500).json({ message: "Failed to create/update user" });
             }
         });
 
+        // Get user role
+        app.get('/user/role', async (req, res) => {
+            try {
+                const { email } = req.query;
+                if (!email) return res.status(400).json({ message: "Email is required" });
 
+                const user = await userCollection.findOne({ email });
+                res.json({ role: user?.role || "user" });
+            } catch (err) {
+                console.error(err);
+                res.status(500).json({ message: "Failed to fetch role" });
+            }
+        });
 
+        // Update user role by ID
         app.patch('/users/:id/role', async (req, res) => {
             try {
                 const { id } = req.params;
@@ -340,22 +364,6 @@ async function run() {
             } catch (err) {
                 console.error(err);
                 res.status(500).json({ message: 'Failed to update role' });
-            }
-        });
-
-        app.patch('/users/:id/fraud', async (req, res) => {
-            try {
-                const { id } = req.params;
-                if (!ObjectId.isValid(id)) return res.status(400).json({ message: "Invalid user ID" });
-
-                await userCollection.updateOne({ _id: new ObjectId(id) }, { $set: { fraud: true } });
-
-                await ticketsCollection.updateMany({ vendorId: id }, { $set: { status: 'hidden' } });
-
-                res.json({ message: 'Vendor marked as fraud' });
-            } catch (err) {
-                console.error(err);
-                res.status(500).json({ message: 'Failed to mark as fraud' });
             }
         });
 
@@ -548,6 +556,50 @@ async function run() {
         });
 
 
+        app.get("/bookings", async (req, res) => {
+            const { ticketId, status } = req.query;
+
+            const query = {};
+            if (ticketId) query.ticketId = new ObjectId(ticketId);
+            if (status) query.status = status;
+
+            const bookings = await bookingsCollection.find(query).toArray();
+            res.send(bookings);
+        });
+
+
+        // Update booking status 
+
+        app.patch("/bookings/:id/status", async (req, res) => {
+            try {
+                const { id } = req.params;
+                const { status } = req.body;
+
+                if (!ObjectId.isValid(id)) {
+                    return res.status(400).json({ message: "Invalid booking ID" });
+                }
+
+                if (!["pending", "approved", "rejected"].includes(status)) {
+                    return res.status(400).json({ message: "Invalid status value" });
+                }
+
+                const result = await bookingsCollection.updateOne(
+                    { _id: new ObjectId(id) },
+                    { $set: { status } }
+                );
+
+                if (result.matchedCount === 0) {
+                    return res.status(404).json({ message: "Booking not found" });
+                }
+
+                res.json({ success: true, status });
+            } catch (error) {
+                console.error(error);
+                res.status(500).json({ message: "Failed to update booking status" });
+            }
+        });
+
+
         app.patch('/tickets/:id/advertise', async (req, res) => {
             try {
                 const { id } = req.params;
@@ -566,6 +618,102 @@ async function run() {
             } catch (err) {
                 console.error(err);
                 res.status(500).json({ message: "Failed to update advertise status" });
+            }
+        });
+
+
+        // Transactions for a user
+        app.get('/transactions', async (req, res) => {
+            try {
+                const { email } = req.query;
+                if (!email) return res.status(400).json({ message: "Email is required" });
+
+                const bookings = await bookingsCollection.find({ email }).toArray();
+
+                const transactions = await Promise.all(
+                    bookings.map(async (b) => {
+                        let ticket = null;
+                        if (b.ticketId && ObjectId.isValid(b.ticketId)) {
+                            ticket = await ticketsCollection.findOne({ _id: new ObjectId(b.ticketId) });
+                        }
+                        return {
+                            id: b._id.toString(),
+                            amount: b.quantity * (b.unitPrice || ticket?.price || 0),
+                            ticketTitle: ticket?.title || "Unknown Ticket",
+                            paymentDate: b.createdAt || new Date(),
+                            status: b.status || "pending",
+                        };
+                    })
+                );
+
+                res.json(transactions);
+            } catch (err) {
+                console.error("Transactions fetch error:", err);
+                res.status(500).json({ message: "Failed to fetch transactions" });
+            }
+        });
+
+
+        // Get bookings 
+        app.get('/bookings', async (req, res) => {
+            try {
+                const { ticketId, vendorEmail, status } = req.query;
+                const query = {};
+
+                if (ticketId) query.ticketId = new ObjectId(ticketId);
+                if (status) query.status = status;
+
+                let bookings = await bookingsCollection.find(query).toArray();
+
+                if (vendorEmail) {
+                    const vendorTickets = await ticketsCollection.find({ vendorEmail }).toArray();
+                    const vendorTicketIds = vendorTickets.map(t => t._id.toString());
+                    bookings = bookings.filter(b => vendorTicketIds.includes(b.ticketId.toString()));
+                }
+
+                const detailedBookings = await Promise.all(
+                    bookings.map(async (b) => {
+                        const ticket = await ticketsCollection.findOne({ _id: new ObjectId(b.ticketId) });
+                        return {
+                            ...b,
+                            _id: b._id.toString(),
+                            ticketTitle: ticket?.title || "Unknown Ticket",
+                            unitPrice: ticket?.price || 0,
+                            userEmail: b.email,
+                        };
+                    })
+                );
+
+                res.json(detailedBookings);
+            } catch (err) {
+                console.error("Fetch bookings error:", err);
+                res.status(500).json({ message: "Failed to fetch bookings" });
+            }
+        });
+
+
+
+        app.get('/vendor-bookings/:vendorEmail', async (req, res) => {
+            try {
+                const { vendorEmail } = req.params;
+                if (!vendorEmail) return res.status(400).json({ message: "Vendor email is required" });
+
+                const bookings = await bookingsCollection.find({ vendorEmail }).toArray();
+
+                const detailedBookings = await Promise.all(
+                    bookings.map(async (b) => {
+                        const ticket = await ticketsCollection.findOne({ _id: new ObjectId(b.ticketId) });
+                        return {
+                            ...b,
+                            ticket: ticket ? { ...ticket, _id: ticket._id.toString() } : null
+                        };
+                    })
+                );
+
+                res.json(detailedBookings);
+            } catch (err) {
+                console.error(err);
+                res.status(500).json({ message: "Failed to fetch vendor bookings" });
             }
         });
 
