@@ -8,8 +8,11 @@ const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const app = express();
 const port = process.env.PORT || 5000;
 
-//CORS
-const allowedOrigins = ['https://book-my-seat-77125.web.app/', 'https://book-my-seat-77125.firebaseapp.com/'];
+const allowedOrigins = [
+    'http://localhost:5173',
+    'https://book-my-seat-77125.web.app',
+    'https://book-my-seat-77125.firebaseapp.com'
+];
 
 app.use((req, res, next) => {
     const origin = req.headers.origin;
@@ -106,28 +109,29 @@ async function run() {
         // Get all tickets
         app.get('/tickets', async (req, res) => {
             try {
-                const status = req.query.status;
                 const search = req.query.search || '';
                 const sortBy = req.query.sortBy || 'price';
                 const order = req.query.order === 'desc' ? -1 : 1;
+                const advertise = req.query.advertise === 'true';
 
-                const query = { title: { $regex: search, $options: 'i' } };
-                if (status) query.status = status;
+                const query = {
+                    title: { $regex: search, $options: 'i' }
+                };
 
-                const tickets = await ticketsCollection.find(query)
-                    .sort({ [sortBy]: order })
-                    .toArray();
+                if (advertise) query.advertise = true;
+
+                const tickets = await ticketsCollection.find(query).sort({ [sortBy]: order }).toArray();
 
                 res.json(tickets.map(t => ({
                     ...t,
-                    _id: t._id.toString(),
-                    advertise: t.advertise || false
+                    _id: t._id.toString()
                 })));
             } catch (err) {
-                console.error("Failed to fetch tickets:", err);
-                res.status(500).json({ message: "Failed to fetch tickets" });
+                console.error(err);
+                res.status(500).json({ message: 'Failed to fetch tickets' });
             }
         });
+
 
 
         // Get single ticket by ID
@@ -191,15 +195,19 @@ async function run() {
         app.get('/my-tickets', async (req, res) => {
             try {
                 const email = req.query.email;
+                console.log("Fetching tickets for:", email);
+
                 if (!email) return res.status(400).json({ message: "Email is required" });
 
                 const bookings = await bookingsCollection.find({ email }).toArray();
+                console.log("Found bookings:", bookings.length);
 
                 const detailedBookings = await Promise.all(
                     bookings.map(async (b) => {
                         const ticket = await ticketsCollection.findOne({ _id: new ObjectId(b.ticketId) });
                         return {
                             ...b,
+                            _id: b._id.toString(),
                             ticket: ticket ? { ...ticket, _id: ticket._id.toString() } : null
                         };
                     })
@@ -211,6 +219,7 @@ async function run() {
                 res.status(500).json({ message: "Failed to fetch your tickets" });
             }
         });
+
 
         // Stripe payment intent
         app.post('/create-payment-intent', async (req, res) => {
@@ -519,7 +528,7 @@ async function run() {
             }
         });
 
-        // Approve ticket
+        // Admin Approve ticket
         app.patch('/tickets/:id/approve', async (req, res) => {
             try {
                 const { id } = req.params;
@@ -537,7 +546,7 @@ async function run() {
             }
         });
 
-        // Reject ticket
+        //Admin  Reject ticket
         app.patch('/tickets/:id/reject', async (req, res) => {
             try {
                 const { id } = req.params;
@@ -554,6 +563,68 @@ async function run() {
                 res.status(500).json({ message: 'Failed to reject ticket' });
             }
         });
+
+
+        // Get bookings with optional status filter
+        app.get('/bookings', async (req, res) => {
+            try {
+                const { status } = req.query;
+                const filter = status
+                    ? { status: { $regex: new RegExp(`^${status}$`, 'i') } } 
+                    : {};
+
+                const bookings = await bookingsCollection.find(filter).toArray();
+
+                const detailedBookings = await Promise.all(
+                    bookings.map(async (b) => {
+                        const ticket = await ticketsCollection.findOne({ _id: new ObjectId(b.ticketId) });
+                        const user = await usersCollection.findOne({ email: b.email });
+                        return {
+                            ...b,
+                            ticket: ticket ? { ...ticket, _id: ticket._id.toString() } : null,
+                            userName: user?.name || 'Unknown',
+                            email: b.email || 'N/A',
+                        };
+                    })
+                );
+
+                res.json(detailedBookings);
+            } catch (err) {
+                console.error(err);
+                res.status(500).json({ message: 'Failed to fetch bookings' });
+            }
+        });
+
+        // Vendor accept booking
+        app.patch('/bookings/:id/accept', async (req, res) => {
+            try {
+                const { id } = req.params;
+                const result = await bookingsCollection.updateOne(
+                    { _id: new ObjectId(id) },
+                    { $set: { status: 'accepted' } }
+                );
+                res.json({ message: 'Booking accepted', modifiedCount: result.modifiedCount });
+            } catch (err) {
+                console.error(err);
+                res.status(500).json({ message: 'Failed to accept booking' });
+            }
+        });
+
+        // Vendor reject booking
+        app.patch('/bookings/:id/reject', async (req, res) => {
+            try {
+                const { id } = req.params;
+                const result = await bookingsCollection.updateOne(
+                    { _id: new ObjectId(id) },
+                    { $set: { status: 'rejected' } }
+                );
+                res.json({ message: 'Booking rejected', modifiedCount: result.modifiedCount });
+            } catch (err) {
+                console.error(err);
+                res.status(500).json({ message: 'Failed to reject booking' });
+            }
+        });
+
 
 
         app.get("/bookings", async (req, res) => {
@@ -626,9 +697,9 @@ async function run() {
         app.get('/transactions', async (req, res) => {
             try {
                 const { email } = req.query;
-                if (!email) return res.status(400).json({ message: "Email is required" });
 
-                const bookings = await bookingsCollection.find({ email }).toArray();
+                const query = email ? { userEmail: email } : {};
+                const bookings = await bookingsCollection.find(query).toArray();
 
                 const transactions = await Promise.all(
                     bookings.map(async (b) => {
@@ -639,19 +710,20 @@ async function run() {
                         return {
                             id: b._id.toString(),
                             amount: b.quantity * (b.unitPrice || ticket?.price || 0),
-                            ticketTitle: ticket?.title || "Unknown Ticket",
+                            ticketTitle: ticket?.title || 'Unknown Ticket',
                             paymentDate: b.createdAt || new Date(),
-                            status: b.status || "pending",
+                            status: b.status || 'pending',
                         };
                     })
                 );
 
                 res.json(transactions);
             } catch (err) {
-                console.error("Transactions fetch error:", err);
-                res.status(500).json({ message: "Failed to fetch transactions" });
+                console.error('Transactions fetch error:', err);
+                res.status(500).json({ message: 'Failed to fetch transactions' });
             }
         });
+
 
 
         // Get bookings 
@@ -692,6 +764,72 @@ async function run() {
         });
 
 
+        app.patch('/my-tickets/:id/pay', async (req, res) => {
+            try {
+                const { id } = req.params;
+                if (!id) return res.status(400).json({ message: 'Booking ID is required' });
+
+                const booking = await bookingsCollection.findOne({ _id: new ObjectId(id) });
+                if (!booking) return res.status(404).json({ message: 'Booking not found' });
+
+                const departure = new Date(booking.departure);
+                if (departure < new Date()) {
+                    return res.status(400).json({ message: 'Cannot pay for a booking with passed departure.' });
+                }
+
+                const ticket = await ticketsCollection.findOne({ _id: new ObjectId(booking.ticketId) });
+                if (!ticket) return res.status(404).json({ message: 'Ticket not found' });
+
+                if ((ticket.quantity || 0) < booking.quantity) {
+                    return res.status(400).json({ message: 'Not enough tickets available.' });
+                }
+
+                await bookingsCollection.updateOne(
+                    { _id: new ObjectId(id) },
+                    { $set: { status: 'paid', paidAt: new Date() } }
+                );
+
+                await ticketsCollection.updateOne(
+                    { _id: new ObjectId(booking.ticketId) },
+                    { $inc: { quantity: -booking.quantity } }
+                );
+
+                res.json({ message: 'Payment successful', bookingId: id });
+            } catch (err) {
+                console.error('Pay booking error:', err);
+                res.status(500).json({ message: 'Failed to process payment' });
+            }
+        });
+
+
+
+        //bookings/:id/status
+        app.patch('/bookings/:id/status', async (req, res) => {
+            try {
+                const { id } = req.params;
+                const { status } = req.body;
+
+                if (!id) return res.status(400).json({ message: "Booking ID is required" });
+                if (!["accepted", "rejected"].includes(status)) {
+                    return res.status(400).json({ message: "Status must be 'accepted' or 'rejected'" });
+                }
+
+                const booking = await bookingsCollection.findOne({ _id: new ObjectId(id) });
+                if (!booking) return res.status(404).json({ message: "Booking not found" });
+
+                await bookingsCollection.updateOne(
+                    { _id: new ObjectId(id) },
+                    { $set: { status } }
+                );
+
+                res.json({ message: `Booking ${status}` });
+            } catch (err) {
+                console.error("Booking status update error:", err);
+                res.status(500).json({ message: "Failed to update booking status" });
+            }
+        });
+
+
 
         app.get('/vendor-bookings/:vendorEmail', async (req, res) => {
             try {
@@ -714,6 +852,25 @@ async function run() {
             } catch (err) {
                 console.error(err);
                 res.status(500).json({ message: "Failed to fetch vendor bookings" });
+            }
+        });
+
+        // Delete a booking by its ID
+        app.delete('/my-tickets/:id', async (req, res) => {
+            try {
+                const { id } = req.params;
+                if (!id) return res.status(400).json({ message: 'Booking ID is required' });
+
+                const result = await bookingsCollection.deleteOne({ _id: new ObjectId(id) });
+
+                if (result.deletedCount === 0) {
+                    return res.status(404).json({ message: 'Booking not found' });
+                }
+
+                res.status(200).json({ message: 'Booking deleted successfully' });
+            } catch (err) {
+                console.error(err);
+                res.status(500).json({ message: 'Failed to delete booking' });
             }
         });
 
