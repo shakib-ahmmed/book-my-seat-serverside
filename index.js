@@ -9,7 +9,7 @@ const app = express();
 const port = process.env.PORT || 5000;
 
 //CORS
-const allowedOrigins = ['https://book-my-seat-77125.web.app/'];
+const allowedOrigins = ['https://book-my-seat-77125.web.app/', 'https://book-my-seat-77125.firebaseapp.com/'];
 
 app.use((req, res, next) => {
     const origin = req.headers.origin;
