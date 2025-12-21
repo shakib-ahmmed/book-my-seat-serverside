@@ -105,6 +105,46 @@ async function run() {
             }
         });
 
+        app.patch('/users/:id/make-admin', async (req, res) => {
+            try {
+                const { id } = req.params;
+
+                if (!ObjectId.isValid(id)) {
+                    return res.status(400).json({ message: "Invalid user ID" });
+                }
+
+                const result = await userCollection.updateOne(
+                    { _id: new ObjectId(id) },
+                    { $set: { role: "admin" } }
+                );
+
+                if (result.matchedCount === 0) {
+                    return res.status(404).json({ message: "User not found" });
+                }
+
+                res.json({ message: "User promoted to admin" });
+            } catch (err) {
+                console.error(err);
+                res.status(500).json({ message: "Failed to make admin" });
+            }
+        });
+
+        app.patch("/users/:id/make-vendor", verifyJWT, verifyAdmin, async (req, res) => {
+            const { id } = req.params;
+
+            const result = await usersCollection.updateOne(
+                { _id: new ObjectId(id) },
+                { $set: { role: "vendor" } }
+            );
+
+            if (result.modifiedCount === 0) {
+                return res.status(404).send({ message: "User not found" });
+            }
+
+            res.send({ message: "User promoted to vendor" });
+        });
+
+
 
         // Get all tickets
         app.get('/tickets', async (req, res) => {
@@ -570,7 +610,7 @@ async function run() {
             try {
                 const { status } = req.query;
                 const filter = status
-                    ? { status: { $regex: new RegExp(`^${status}$`, 'i') } } 
+                    ? { status: { $regex: new RegExp(`^${status}$`, 'i') } }
                     : {};
 
                 const bookings = await bookingsCollection.find(filter).toArray();
