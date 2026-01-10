@@ -561,6 +561,22 @@ async function run() {
             }
         });
 
+        // Inside fetchTickets
+        const res = await fetch(
+            `https://book-my-seat-server.vercel.app/tickets?${queryParams}`
+        );
+        const data = await res.json();
+
+               const ticketsData = Array.isArray(data) ? data : data.tickets || [];
+
+        if (page === 1) {
+            setTickets(ticketsData);
+        } else {
+            setTickets((prev) => [...prev, ...ticketsData]);
+        }
+
+        setHasMore(ticketsData.length === 8); 
+
 
         // Vendor statistics 
         app.get("/vendor/statistics/:email", async (req, res) => {
