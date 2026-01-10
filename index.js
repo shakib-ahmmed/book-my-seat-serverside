@@ -188,15 +188,27 @@ async function run() {
             try {
                 const {
                     search = "",
+                    category,
+                    minPrice,
+                    maxPrice,
                     advertise,
                     status,
                     sortBy = "price",
                     order = "asc",
                 } = req.query;
 
+                // Build MongoDB query
                 const query = {
                     title: { $regex: search, $options: "i" },
                 };
+
+                if (category) query.category = category; // filter by category
+
+                if (minPrice || maxPrice) {
+                    query.price = {};
+                    if (minPrice) query.price.$gte = Number(minPrice);
+                    if (maxPrice) query.price.$lte = Number(maxPrice);
+                }
 
                 if (advertise === "true") query.advertise = true;
                 if (status) query.status = status;
@@ -212,6 +224,7 @@ async function run() {
                 res.status(500).json({ message: "Failed to fetch tickets" });
             }
         });
+
 
 
         app.get("/tickets/:id", async (req, res) => {
@@ -567,7 +580,7 @@ async function run() {
         );
         const data = await res.json();
 
-               const ticketsData = Array.isArray(data) ? data : data.tickets || [];
+        const ticketsData = Array.isArray(data) ? data : data.tickets || [];
 
         if (page === 1) {
             setTickets(ticketsData);
@@ -575,7 +588,7 @@ async function run() {
             setTickets((prev) => [...prev, ...ticketsData]);
         }
 
-        setHasMore(ticketsData.length === 8); 
+        setHasMore(ticketsData.length === 8);
 
 
         // Vendor statistics 
